@@ -40,7 +40,7 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:#8fb2cb;ma
     <div class="section"><h2>圖例</h2><div class="legend"><div><i class="dot" style="background:#52d6ff"></i>文章</div><div><i class="dot" style="background:#ffd166"></i>知識主題</div><div><i class="dot" style="background:#b59cff"></i>月份／期別</div></div></div>
     <button class="btn" id="reset">重設篩選</button> <button class="btn" id="collapseAll">收合文章</button>
   </aside>
-  <main class="graph"><div id="cy"></div><div class="graphHelp">預設只顯示月份＋主題｜點主題可展開相關文章<br>搜尋文章時會自動展開並定位</div></main>
+  <main class="graph"><div id="cy"></div><div class="graphHelp">操作順序：先選月份（可省略）→ 再選主題 → 顯示相關文章<br>藍色文章節點點一下，右側一定同步更新</div></main>
   <aside class="detail" id="detail"><div class="loading">載入資料中…</div></aside>
 </div>
 </div>
@@ -68,12 +68,12 @@ async function boot(){
   buildFilters(); buildGraph();
   const p=new URLSearchParams(location.search).get('article');
   if(p && articles.has(p)){focusArticle(p,true);openReader(p,false)}
-  else if(manifest[0]) showDetail(manifest[0].id);
+  else detail.innerHTML='<h2>文章</h2><div class="excerpt">請先點選月份（可省略），再點黃色「知識主題」；相關藍色文章才會展開。點任一藍色文章節點後，右側會同步顯示該篇內容。</div>';
 }
 function buildFilters(){
   const ms=[...new Set(manifest.map(x=>x.month))];
   months.innerHTML=ms.map(m=>`<button class="chip" data-month="${m}">${m}</button>`).join('');
-  months.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{activeMonth=activeMonth===b.dataset.month?'':b.dataset.month;applyGraphMode();paintFilters()});
+  months.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{activeMonth=activeMonth===b.dataset.month?'':b.dataset.month;expandedTopic='';activeTopic='';paintFilters();applyGraphMode()});
   const counts={}; manifest.forEach(a=>a.topics.forEach(t=>counts[t]=(counts[t]||0)+1));
   const ts=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
   topics.innerHTML=ts.map(([t,c])=>`<button class="chip" data-topic="${esc(t)}">${esc(t)} ${c}</button>`).join('');
@@ -84,40 +84,69 @@ function paintFilters(){
   document.querySelectorAll('[data-topic]').forEach(b=>b.classList.toggle('active',b.dataset.topic===activeTopic));
 }
 function buildGraph(){
- const elements=[], topicSet=new Set(), monthSet=new Set();
- manifest.forEach(a=>{a.topics.forEach(t=>topicSet.add(t));monthSet.add(a.month)});
+ const elements=[], topicSet=new Set(), monthSet=new Set(), monthTopicPairs=new Set();
+ manifest.forEach(a=>{
+   a.topics.forEach(t=>{
+     topicSet.add(t);
+     monthTopicPairs.add(a.month+'|||'+t);
+   });
+   monthSet.add(a.month);
+ });
  [...monthSet].forEach(m=>elements.push({data:{id:'m:'+m,label:m,type:'month'}}));
  [...topicSet].forEach(t=>elements.push({data:{id:'t:'+t,label:t,type:'topic'}}));
+ [...monthTopicPairs].forEach(pair=>{
+   const [m,t]=pair.split('|||');
+   elements.push({data:{id:'mt:'+m+':'+t,source:'m:'+m,target:'t:'+t,type:'monthTopicEdge'}});
+ });
  manifest.forEach(a=>{
    elements.push({data:{id:a.id,label:a.title,type:'article',month:a.month}});
    elements.push({data:{id:'em:'+a.id,source:'m:'+a.month,target:a.id,type:'monthEdge'}});
    a.topics.forEach((t,i)=>elements.push({data:{id:'et:'+a.id+':'+i,source:a.id,target:'t:'+t,type:'topicEdge'}}));
  });
- cy=cytoscape({container:document.querySelector('#cy'),elements,
- style:[
- {selector:'node',style:{'label':'data(label)','font-family':'system-ui','font-size':11,'color':'#dfefff','text-wrap':'wrap','text-max-width':125,'text-valign':'center','text-halign':'center','border-width':1,'border-color':'#294f69'}},
- {selector:'node[type="article"]',style:{'background-color':'#52d6ff','width':30,'height':30,'color':'#d8f3ff','text-margin-y':18,'font-size':10}},
- {selector:'node[type="topic"]',style:{'background-color':'#ffd166','width':46,'height':46,'color':'#ffe9a6','text-margin-y':22,'font-size':12,'font-weight':'bold'}},
- {selector:'node[type="month"]',style:{'background-color':'#b59cff','width':50,'height':50,'font-size':13,'font-weight':'bold','color':'#eee7ff','text-margin-y':24}},
- {selector:'edge',style:{'width':1.2,'line-color':'#24445f','curve-style':'bezier','opacity':.58}},
- {selector:'edge[type="monthEdge"]',style:{'line-color':'#6b5e9c','opacity':.32}},
- {selector:':selected',style:{'border-width':4,'border-color':'#ffffff'}}
- ],
- layout:{name:'cose',animate:false,idealEdgeLength:145,nodeRepulsion:15000,gravity:.22,componentSpacing:110}
+
+ cy=cytoscape({
+  container:document.querySelector('#cy'),
+  elements,
+  style:[
+   {selector:'node',style:{'label':'data(label)','font-family':'system-ui','font-size':11,'color':'#dfefff','text-wrap':'wrap','text-max-width':125,'text-valign':'center','text-halign':'center','border-width':1,'border-color':'#294f69','overlay-padding':8}},
+   {selector:'node[type="article"]',style:{'background-color':'#52d6ff','width':34,'height':34,'color':'#d8f3ff','text-margin-y':20,'font-size':10,'overlay-opacity':0,'text-events':'yes'}},
+   {selector:'node[type="topic"]',style:{'background-color':'#ffd166','width':48,'height':48,'color':'#ffe9a6','text-margin-y':23,'font-size':12,'font-weight':'bold','overlay-opacity':0}},
+   {selector:'node[type="month"]',style:{'background-color':'#b59cff','width':52,'height':52,'font-size':13,'font-weight':'bold','color':'#eee7ff','text-margin-y':25,'overlay-opacity':0}},
+   {selector:'edge',style:{'width':1.1,'line-color':'#24445f','curve-style':'bezier','opacity':.45}},
+   {selector:'edge[type="monthTopicEdge"]',style:{'line-color':'#6a738f','width':1.4,'opacity':.28}},
+   {selector:'edge[type="monthEdge"]',style:{'line-color':'#8d78c8','opacity':.45}},
+   {selector:'edge[type="topicEdge"]',style:{'line-color':'#d9ae4c','opacity':.52}},
+   {selector:':selected',style:{'border-width':5,'border-color':'#ffffff'}}
+  ],
+  layout:{name:'cose',animate:false,idealEdgeLength:150,nodeRepulsion:17000,gravity:.18,componentSpacing:130}
  });
- cy.on('tap','node[type="article"]',e=>{const id=e.target.id(); showDetail(id); focusArticle(id,false)});
+
+ // 文章節點：任何點擊都先同步右側，再做視覺聚焦。
+ cy.on('tap','node[type="article"]',e=>{
+   const id=e.target.id();
+   showDetail(id);
+   selectArticleNode(id);
+ });
+
+ // 月份：只作為「篩選條件」，不直接展開文章。
+ cy.on('tap','node[type="month"]',e=>{
+   const month=e.target.data('label');
+   activeMonth = activeMonth===month ? '' : month;
+   expandedTopic='';
+   activeTopic='';
+   paintFilters();
+   applyGraphMode();
+ });
+
+ // 主題：才負責展開文章。
  cy.on('tap','node[type="topic"]',e=>{
    const topic=e.target.data('label');
    expandedTopic = expandedTopic===topic ? '' : topic;
    activeTopic = expandedTopic;
-   applyGraphMode();
    paintFilters();
- });
- cy.on('tap','node[type="month"]',e=>{
-   activeMonth = activeMonth===e.target.data('label') ? '' : e.target.data('label');
    applyGraphMode();
-   paintFilters();
  });
+
  applyGraphMode();
 }
 function showDetail(id){
@@ -147,72 +176,111 @@ function relayout(){
  if(!cy)return;
  const vis=cy.elements(':visible');
  if(!vis.length)return;
- const count=vis.nodes().length;
- const layoutName=count<=20?'cose':'cose';
- cy.layout({name:layoutName,animate:true,animationDuration:350,fit:true,padding:55,idealEdgeLength:count<=20?165:140,nodeRepulsion:count<=20?18000:15000,gravity:.18,componentSpacing:120}).run();
+ const nodeCount=vis.nodes().length;
+ cy.layout({
+   name:'cose',
+   animate:true,
+   animationDuration:320,
+   fit:true,
+   padding:60,
+   idealEdgeLength:nodeCount<=18?180:145,
+   nodeRepulsion:nodeCount<=18?21000:17000,
+   gravity:.14,
+   componentSpacing:135
+ }).run();
+}
+function selectArticleNode(id){
+ if(!cy)return;
+ cy.elements().unselect();
+ const n=cy.getElementById(id);
+ if(!n || n.empty())return;
+ n.select();
+ cy.animate({center:{eles:n},zoom:1.5},{duration:320});
 }
 function focusArticle(id,reveal=true){
  if(!cy)return;
  const a=articles.get(id);
- if(reveal && a){
+ if(!a)return;
+ if(reveal){
    activeMonth=a.month;
    expandedTopic=a.topics?.[0]||'';
    activeTopic=expandedTopic;
-   applyGraphMode(false);
    paintFilters();
+   applyGraphMode(false);
  }
- const n=cy.getElementById(id);
- cy.elements().unselect();
- n.select();
- n.style('display','element');
- n.connectedEdges().style('display','element');
- n.connectedNodes().style('display','element');
- cy.animate({center:{eles:n},zoom:1.45},{duration:450});
  showDetail(id);
+ selectArticleNode(id);
 }
 function applyGraphMode(doLayout=true){
  if(!cy)return;
+
  cy.elements().style('display','none');
 
- // 基本骨架：月份＋主題永遠可見
- cy.nodes('[type="month"],[type="topic"]').style('display','element');
+ // ① 預設：只顯示月份＋主題，以及月份—主題關係線。
+ const allowedArticles = manifest.filter(a => !activeMonth || a.month===activeMonth);
+ const allowedTopics = new Set(allowedArticles.flatMap(a=>a.topics));
+ const allowedMonths = new Set(activeMonth ? [activeMonth] : manifest.map(a=>a.month));
 
- // 月份若有篩選，僅保留該月份與其中有文章的主題
- if(activeMonth){
-   cy.nodes('[type="month"]').forEach(n=>n.style('display', n.data('label')===activeMonth?'element':'none'));
-   const monthArticles=manifest.filter(a=>a.month===activeMonth);
-   const usedTopics=new Set(monthArticles.flatMap(a=>a.topics));
-   cy.nodes('[type="topic"]').forEach(n=>n.style('display',usedTopics.has(n.data('label'))?'element':'none'));
- }
+ cy.nodes('[type="month"]').forEach(n=>{
+   n.style('display',allowedMonths.has(n.data('label'))?'element':'none');
+ });
+ cy.nodes('[type="topic"]').forEach(n=>{
+   n.style('display',allowedTopics.has(n.data('label'))?'element':'none');
+ });
+ cy.edges('[type="monthTopicEdge"]').forEach(e=>{
+   const m=e.source().data('label'), t=e.target().data('label');
+   if(allowedMonths.has(m) && allowedTopics.has(t)){
+     // 若有月份篩選，只顯示該月份實際存在的主題關聯。
+     const exists=manifest.some(a=>a.month===m && a.topics.includes(t));
+     if(exists)e.style('display','element');
+   }
+ });
 
- // 展開指定主題文章
+ // ② 點主題後：只展開「該主題」相關文章；若先選月份，則再縮小至該月。
  if(expandedTopic){
-   const matches=manifest.filter(a=>a.topics.includes(expandedTopic)&&(!activeMonth||a.month===activeMonth));
+   const matches=manifest.filter(a =>
+      a.topics.includes(expandedTopic) &&
+      (!activeMonth || a.month===activeMonth)
+   );
+
+   // 非選取主題淡出（直接隱藏），讓畫面乾淨。
+   cy.nodes('[type="topic"]').forEach(n=>{
+     n.style('display', n.data('label')===expandedTopic ? 'element' : 'none');
+   });
+   cy.edges('[type="monthTopicEdge"]').style('display','none');
+
+   // 若未先選月份，只顯示有相關文章的月份。
+   const monthsWithMatches=new Set(matches.map(a=>a.month));
+   cy.nodes('[type="month"]').forEach(n=>{
+     n.style('display',monthsWithMatches.has(n.data('label'))?'element':'none');
+   });
+
    matches.forEach(a=>{
      cy.getElementById(a.id).style('display','element');
-     cy.getElementById('t:'+expandedTopic).style('display','element');
-     cy.getElementById('m:'+a.month).style('display','element');
      cy.getElementById('em:'+a.id).style('display','element');
      const idx=a.topics.indexOf(expandedTopic);
      if(idx>=0)cy.getElementById('et:'+a.id+':'+idx).style('display','element');
    });
- } else {
-   // 收合時以「月份—主題」間的虛擬關聯感取代文章海
-   // 不新增額外節點，只顯示月份與主題，保持乾淨概覽
  }
-
- // 只顯示兩端都可見的既有邊
- cy.edges().forEach(e=>{
-   if(e.source().style('display')!=='none' && e.target().style('display')!=='none'){
-     if(expandedTopic) e.style('display','element');
-   }
- });
 
  if(doLayout) relayout();
 }
 function applyFilters(){ applyGraphMode(); }
-reset.onclick=()=>{activeMonth='';activeTopic='';expandedTopic='';paintFilters();applyGraphMode()};
-collapseAll.onclick=()=>{activeTopic='';expandedTopic='';paintFilters();applyGraphMode()};
+reset.onclick=()=>{
+ activeMonth='';
+ activeTopic='';
+ expandedTopic='';
+ paintFilters();
+ applyGraphMode();
+ detail.innerHTML='<h2>文章</h2><div class="excerpt">請先點選月份（可省略），再點黃色「知識主題」；相關藍色文章才會展開。</div>';
+};
+collapseAll.onclick=()=>{
+ activeTopic='';
+ expandedTopic='';
+ paintFilters();
+ applyGraphMode();
+ detail.innerHTML='<h2>文章</h2><div class="excerpt">請先點選黃色「知識主題」，展開相關藍色文章；再點藍色文章節點，右側就會同步顯示該篇內容。</div>';
+};
 q.addEventListener('input',()=>{
  const term=q.value.trim(); if(!term){results.style.display='none';return}
  const rs=mini.search(term,{prefix:true,fuzzy:0.2}).slice(0,18);
