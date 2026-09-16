@@ -38,9 +38,9 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:#8fb2cb;ma
     <div class="section"><h2>月份</h2><div id="months" class="chips"></div></div>
     <div class="section"><h2>主題</h2><div id="topics" class="chips"></div></div>
     <div class="section"><h2>圖例</h2><div class="legend"><div><i class="dot" style="background:#52d6ff"></i>文章</div><div><i class="dot" style="background:#ffd166"></i>知識主題</div><div><i class="dot" style="background:#b59cff"></i>月份／期別</div></div></div>
-    <button class="btn" id="reset">重設篩選</button>
+    <button class="btn" id="reset">重設篩選</button> <button class="btn" id="collapseAll">收合文章</button>
   </aside>
-  <main class="graph"><div id="cy"></div><div class="graphHelp">點文章節點 → 右側摘要 →「閱讀全文」<br>拖曳節點、滾輪縮放皆可</div></main>
+  <main class="graph"><div id="cy"></div><div class="graphHelp">預設只顯示月份＋主題｜點主題可展開相關文章<br>搜尋文章時會自動展開並定位</div></main>
   <aside class="detail" id="detail"><div class="loading">載入資料中…</div></aside>
 </div>
 </div>
@@ -54,7 +54,7 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:#8fb2cb;ma
 
 <script>
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-let manifest=[], articles=new Map(), mini, cy, activeMonth='', activeTopic='';
+let manifest=[], articles=new Map(), mini, cy, activeMonth='', activeTopic='', expandedTopic='';
 
 async function boot(){
   manifest=await fetch('manifest.json').then(r=>r.json());
@@ -67,17 +67,17 @@ async function boot(){
   mini.addAll(docs);
   buildFilters(); buildGraph();
   const p=new URLSearchParams(location.search).get('article');
-  if(p && articles.has(p)){focusArticle(p);openReader(p,false)}
+  if(p && articles.has(p)){focusArticle(p,true);openReader(p,false)}
   else if(manifest[0]) showDetail(manifest[0].id);
 }
 function buildFilters(){
   const ms=[...new Set(manifest.map(x=>x.month))];
   months.innerHTML=ms.map(m=>`<button class="chip" data-month="${m}">${m}</button>`).join('');
-  months.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{activeMonth=activeMonth===b.dataset.month?'':b.dataset.month;applyFilters();paintFilters()});
+  months.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{activeMonth=activeMonth===b.dataset.month?'':b.dataset.month;applyGraphMode();paintFilters()});
   const counts={}; manifest.forEach(a=>a.topics.forEach(t=>counts[t]=(counts[t]||0)+1));
   const ts=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
   topics.innerHTML=ts.map(([t,c])=>`<button class="chip" data-topic="${esc(t)}">${esc(t)} ${c}</button>`).join('');
-  topics.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{activeTopic=activeTopic===b.dataset.topic?'':b.dataset.topic;applyFilters();paintFilters()});
+  topics.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{expandedTopic=expandedTopic===b.dataset.topic?'':b.dataset.topic;activeTopic=expandedTopic;applyGraphMode();paintFilters()});
 }
 function paintFilters(){
   document.querySelectorAll('[data-month]').forEach(b=>b.classList.toggle('active',b.dataset.month===activeMonth));
@@ -95,19 +95,30 @@ function buildGraph(){
  });
  cy=cytoscape({container:document.querySelector('#cy'),elements,
  style:[
- {selector:'node',style:{'label':'data(label)','font-family':'system-ui','font-size':10,'color':'#dfefff','text-wrap':'wrap','text-max-width':110,'text-valign':'center','text-halign':'center','border-width':1,'border-color':'#294f69'}},
- {selector:'node[type="article"]',style:{'background-color':'#52d6ff','width':28,'height':28,'color':'#cceeff','text-margin-y':16}},
- {selector:'node[type="topic"]',style:{'background-color':'#ffd166','width':36,'height':36,'color':'#ffe9a6','text-margin-y':18}},
- {selector:'node[type="month"]',style:{'background-color':'#b59cff','width':42,'height':42,'font-size':12,'font-weight':'bold','color':'#e8ddff','text-margin-y':20}},
- {selector:'edge',style:{'width':1,'line-color':'#24445f','curve-style':'bezier','opacity':.58}},
- {selector:'edge[type="monthEdge"]',style:{'line-color':'#6b5e9c','opacity':.38}},
+ {selector:'node',style:{'label':'data(label)','font-family':'system-ui','font-size':11,'color':'#dfefff','text-wrap':'wrap','text-max-width':125,'text-valign':'center','text-halign':'center','border-width':1,'border-color':'#294f69'}},
+ {selector:'node[type="article"]',style:{'background-color':'#52d6ff','width':30,'height':30,'color':'#d8f3ff','text-margin-y':18,'font-size':10}},
+ {selector:'node[type="topic"]',style:{'background-color':'#ffd166','width':46,'height':46,'color':'#ffe9a6','text-margin-y':22,'font-size':12,'font-weight':'bold'}},
+ {selector:'node[type="month"]',style:{'background-color':'#b59cff','width':50,'height':50,'font-size':13,'font-weight':'bold','color':'#eee7ff','text-margin-y':24}},
+ {selector:'edge',style:{'width':1.2,'line-color':'#24445f','curve-style':'bezier','opacity':.58}},
+ {selector:'edge[type="monthEdge"]',style:{'line-color':'#6b5e9c','opacity':.32}},
  {selector:':selected',style:{'border-width':4,'border-color':'#ffffff'}}
  ],
- layout:{name:'cose',animate:false,idealEdgeLength:100,nodeRepulsion:9000,gravity:.35,componentSpacing:80}
+ layout:{name:'cose',animate:false,idealEdgeLength:145,nodeRepulsion:15000,gravity:.22,componentSpacing:110}
  });
- cy.on('tap','node[type="article"]',e=>showDetail(e.target.id()));
- cy.on('tap','node[type="topic"]',e=>{activeTopic=e.target.data('label');applyFilters();paintFilters()});
- cy.on('tap','node[type="month"]',e=>{activeMonth=e.target.data('label');applyFilters();paintFilters()});
+ cy.on('tap','node[type="article"]',e=>{const id=e.target.id(); showDetail(id); focusArticle(id,false)});
+ cy.on('tap','node[type="topic"]',e=>{
+   const topic=e.target.data('label');
+   expandedTopic = expandedTopic===topic ? '' : topic;
+   activeTopic = expandedTopic;
+   applyGraphMode();
+   paintFilters();
+ });
+ cy.on('tap','node[type="month"]',e=>{
+   activeMonth = activeMonth===e.target.data('label') ? '' : e.target.data('label');
+   applyGraphMode();
+   paintFilters();
+ });
+ applyGraphMode();
 }
 function showDetail(id){
  const a=articles.get(id); if(!a)return;
@@ -132,25 +143,82 @@ closeReader.onclick=()=>{reader.classList.remove('open')};
 reader.onclick=e=>{if(e.target===reader)reader.classList.remove('open')};
 window.onpopstate=()=>{const id=new URLSearchParams(location.search).get('article');if(id&&articles.has(id)){showDetail(id);openReader(id,false)}else reader.classList.remove('open')};
 
-function focusArticle(id){if(!cy)return;const n=cy.getElementById(id);cy.elements().unselect();n.select();cy.animate({center:{eles:n},zoom:1.35},{duration:400});showDetail(id)}
-function applyFilters(){
+function relayout(){
  if(!cy)return;
- cy.elements().style('display','element');
- const keep=new Set(manifest.filter(a=>(!activeMonth||a.month===activeMonth)&&(!activeTopic||a.topics.includes(activeTopic))).map(a=>a.id));
- if(activeMonth||activeTopic){
-   cy.nodes('[type="article"]').forEach(n=>{if(!keep.has(n.id()))n.style('display','none')});
-   cy.edges().forEach(e=>{if(e.source().style('display')==='none'||e.target().style('display')==='none')e.style('display','none')});
-   cy.nodes('[type="topic"],[type="month"]').forEach(n=>{if(!n.connectedEdges().some(e=>e.style('display')!=='none'))n.style('display','none')});
-   const vis=cy.elements(':visible'); if(vis.length)cy.fit(vis,50);
- }else cy.fit(cy.elements(),50);
+ const vis=cy.elements(':visible');
+ if(!vis.length)return;
+ const count=vis.nodes().length;
+ const layoutName=count<=20?'cose':'cose';
+ cy.layout({name:layoutName,animate:true,animationDuration:350,fit:true,padding:55,idealEdgeLength:count<=20?165:140,nodeRepulsion:count<=20?18000:15000,gravity:.18,componentSpacing:120}).run();
 }
-reset.onclick=()=>{activeMonth='';activeTopic='';paintFilters();applyFilters()};
+function focusArticle(id,reveal=true){
+ if(!cy)return;
+ const a=articles.get(id);
+ if(reveal && a){
+   activeMonth=a.month;
+   expandedTopic=a.topics?.[0]||'';
+   activeTopic=expandedTopic;
+   applyGraphMode(false);
+   paintFilters();
+ }
+ const n=cy.getElementById(id);
+ cy.elements().unselect();
+ n.select();
+ n.style('display','element');
+ n.connectedEdges().style('display','element');
+ n.connectedNodes().style('display','element');
+ cy.animate({center:{eles:n},zoom:1.45},{duration:450});
+ showDetail(id);
+}
+function applyGraphMode(doLayout=true){
+ if(!cy)return;
+ cy.elements().style('display','none');
+
+ // 基本骨架：月份＋主題永遠可見
+ cy.nodes('[type="month"],[type="topic"]').style('display','element');
+
+ // 月份若有篩選，僅保留該月份與其中有文章的主題
+ if(activeMonth){
+   cy.nodes('[type="month"]').forEach(n=>n.style('display', n.data('label')===activeMonth?'element':'none'));
+   const monthArticles=manifest.filter(a=>a.month===activeMonth);
+   const usedTopics=new Set(monthArticles.flatMap(a=>a.topics));
+   cy.nodes('[type="topic"]').forEach(n=>n.style('display',usedTopics.has(n.data('label'))?'element':'none'));
+ }
+
+ // 展開指定主題文章
+ if(expandedTopic){
+   const matches=manifest.filter(a=>a.topics.includes(expandedTopic)&&(!activeMonth||a.month===activeMonth));
+   matches.forEach(a=>{
+     cy.getElementById(a.id).style('display','element');
+     cy.getElementById('t:'+expandedTopic).style('display','element');
+     cy.getElementById('m:'+a.month).style('display','element');
+     cy.getElementById('em:'+a.id).style('display','element');
+     const idx=a.topics.indexOf(expandedTopic);
+     if(idx>=0)cy.getElementById('et:'+a.id+':'+idx).style('display','element');
+   });
+ } else {
+   // 收合時以「月份—主題」間的虛擬關聯感取代文章海
+   // 不新增額外節點，只顯示月份與主題，保持乾淨概覽
+ }
+
+ // 只顯示兩端都可見的既有邊
+ cy.edges().forEach(e=>{
+   if(e.source().style('display')!=='none' && e.target().style('display')!=='none'){
+     if(expandedTopic) e.style('display','element');
+   }
+ });
+
+ if(doLayout) relayout();
+}
+function applyFilters(){ applyGraphMode(); }
+reset.onclick=()=>{activeMonth='';activeTopic='';expandedTopic='';paintFilters();applyGraphMode()};
+collapseAll.onclick=()=>{activeTopic='';expandedTopic='';paintFilters();applyGraphMode()};
 q.addEventListener('input',()=>{
  const term=q.value.trim(); if(!term){results.style.display='none';return}
  const rs=mini.search(term,{prefix:true,fuzzy:0.2}).slice(0,18);
  results.innerHTML=rs.map(r=>`<div class="result" data-id="${r.id}"><b>${esc(r.title)}</b><small>${esc(r.month)}・${esc(r.author)}｜${esc(r.topics)}</small></div>`).join('')||'<div class="result">找不到符合內容</div>';
  results.style.display='block';
- results.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>{results.style.display='none';q.value='';focusArticle(x.dataset.id)});
+ results.querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>{results.style.display='none';q.value='';focusArticle(x.dataset.id,true)});
 });
 document.addEventListener('click',e=>{if(!e.target.closest('.searchwrap'))results.style.display='none'});
 boot().catch(err=>{detail.innerHTML='<h2>載入失敗</h2><div class="excerpt">'+esc(err.message)+'<br><br>請確認您是透過 GitHub Pages/HTTP 開啟，而不是直接用 file:// 開啟。</div>';console.error(err)});
