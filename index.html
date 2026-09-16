@@ -57,10 +57,10 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&
 let manifest=[], articles=new Map(), mini, cy, activeMonth='', activeTopic='';
 
 async function boot(){
-  manifest=await fetch('data/manifest.json').then(r=>r.json());
+  manifest=await fetch('manifest.json').then(r=>r.json());
   document.querySelector('#articleCount').textContent=manifest.length;
   const docs=await Promise.all(manifest.map(async m=>{
-    const a=await fetch(m.file).then(r=>r.json()); articles.set(a.id,a);
+    const a=await fetch(m.file.replace(/^articles\//,'')).then(r=>r.json()); articles.set(a.id,a);
     return {id:a.id,title:a.title,author:a.author,month:a.month,issue:String(a.issue),topics:a.topics.join(' '),content:a.content};
   }));
   mini=new MiniSearch({fields:['title','author','month','issue','topics','content'],storeFields:['id','title','author','month','issue','topics'],searchOptions:{boost:{title:7,author:4,topics:4},prefix:true,fuzzy:0.2,combineWith:'OR'}});
